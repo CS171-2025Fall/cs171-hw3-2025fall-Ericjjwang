@@ -1,0 +1,4 @@
+#ifndef __UNCHECKED_INTERACTION__
+#define __UNCHECKED_INTERACTION__
+
+#endif
