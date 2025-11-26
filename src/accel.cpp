@@ -5,6 +5,7 @@
 #include "rdr/math_aliases.h"
 #include "rdr/platform.h"
 #include "rdr/shape.h"
+#include <limits>
 
 RDR_NAMESPACE_BEGIN
 
@@ -43,7 +44,38 @@ bool AABB::intersect(const Ray &ray, Float *t_in, Float *t_out) const {
   //    for getting the inverse direction of the ray.
   // @see Min/Max/ReduceMin/ReduceMax
   //    for vector min/max operations.
-  UNIMPLEMENTED;
+  // 手动计算安全的倒数方向
+  Vec3f inv_dir;
+  for (int i = 0; i < 3; i++) {
+    if (ray.direction[i] != 0) {
+      inv_dir[i] = 1.0f / ray.direction[i];
+    } else {
+      inv_dir[i] = std::numeric_limits<Float>::max();
+    }
+  }
+  
+  // 计算每个轴上的进入和退出时间
+  Vec3f t1 = (low_bnd - ray.origin) * inv_dir;
+  Vec3f t2 = (upper_bnd - ray.origin) * inv_dir;
+  
+  // 对每个轴，确保t_min <= t_max
+  Vec3f t_min = Min(t1, t2);
+  Vec3f t_max = Max(t1, t2);
+  
+  // 找到最大的进入时间和最小的退出时间
+  Float t_enter = ReduceMax(t_min);
+  Float t_exit = ReduceMin(t_max);
+  
+  // 检查是否相交
+  if (t_enter > t_exit || t_exit < ray.t_min || t_enter > ray.t_max) {
+    return false;
+  }
+  
+  // 设置输出参数
+  *t_in = Max(t_enter, ray.t_min);
+  *t_out = Min(t_exit, ray.t_max);
+  
+  return *t_in <= *t_out;
 }
 
 /* ===================================================================== *
@@ -92,13 +124,44 @@ bool TriangleIntersect(Ray &ray, const uint32_t &triangle_index,
   // You can use @see Cross and @see Dot for determinant calculations.
 
   // Delete the following lines after you implement the function
-  InternalScalarType u = InternalScalarType(0);
-  InternalScalarType v = InternalScalarType(0);
-  InternalScalarType t = InternalScalarType(0);
-  UNIMPLEMENTED;
+  // Möller–Trumbore 算法实现
+  InternalVecType edge1 = v1 - v0;
+  InternalVecType edge2 = v2 - v0;
+  InternalVecType pvec = Cross(dir, edge2);
+  
+  InternalScalarType det = Dot(edge1, pvec);
+  
+  // 如果行列式接近0，光线与三角形平行
+  if (std::abs(det) < 1e-8) {
+    return false;
+  }
+  
+  InternalScalarType inv_det = InternalScalarType(1) / det;
+  
+  InternalVecType tvec = Cast<InternalScalarType>(ray.origin) - v0;
+  InternalScalarType u = Dot(tvec, pvec) * inv_det;
+  
+  // u坐标超出三角形范围
+  if (u < 0 || u > 1) {
+    return false;
+  }
+  
+  InternalVecType qvec = Cross(tvec, edge1);
+  InternalScalarType v = Dot(dir, qvec) * inv_det;
+  
+  // v坐标超出三角形范围或u+v>1
+  if (v < 0 || u + v > 1) {
+    return false;
+  }
+  
+  InternalScalarType t = Dot(edge2, qvec) * inv_det;
+  
+  // 检查t是否在光线有效范围内
+  if (t < ray.t_min || t > ray.t_max) {
+    return false;
+  }
 
-  // We will reach here if there is an intersection
-
+  // 设置交互信息
   CalculateTriangleDifferentials(interaction,
       {static_cast<Float>(1 - u - v), static_cast<Float>(u),
           static_cast<Float>(v)},

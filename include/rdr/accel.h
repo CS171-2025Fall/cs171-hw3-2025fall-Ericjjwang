@@ -90,11 +90,31 @@ struct AABB : public TAABB<Vec3f> {
            v.y <= upper_bnd.y && v.z >= low_bnd.z && v.z <= upper_bnd.z;
   }
 
-  Float getSurfaceArea() const {
+  float getSurfaceArea() const {
     auto extent = Max(getExtent(), Vec3f(0.0));
     return (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x) *
            2;
   }
+  Vec3f getCentroid() const {
+    return (low_bnd + upper_bnd) * 0.5f;
+  }
+  
+  // 获取包围盒在每个维度上的范围
+  Vec3f getExtent() const {
+    return upper_bnd - low_bnd;
+  }
+  
+  // 扩展包围盒以包含另一个包围盒
+  void unionWith(const AABB& other) {
+      low_bnd = Min(low_bnd, other.low_bnd);
+      upper_bnd = Max(upper_bnd, other.upper_bnd);
+  }
+
+  
+  void unionWith(const Vec3f& point) {
+    low_bnd = Min(low_bnd, point);
+    upper_bnd = Max(upper_bnd, point);
+  } 
 };
 
 /**

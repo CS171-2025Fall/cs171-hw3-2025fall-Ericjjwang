@@ -1,4 +1,4 @@
-// You might wonder why we need this while having an existing bvh_accel
+﻿// You might wonder why we need this while having an existing bvh_accel
 // The abstraction level of these two are different. bvh_tree as a generic class
 // can be used to implement bvh_accel, but bvh_accel itself can only encapsulate
 // TriangleMesh thus cannot be used with bvhtree.
@@ -143,10 +143,9 @@ typename BVHTree<_>::IndexType BVHTree<_>::build(
   // @see span_left: The left index of the current span
   // @see span_right: The right index of the current span
   //
-  /* if ( */ UNIMPLEMENTED; /* ) */
+  IndexType count = span_right - span_left;
+  if (depth >= CUTOFF_DEPTH || count <= 2) 
   {
-    // create leaf node
-    const auto &node = nodes[span_left];
     InternalNode result(span_left, span_right);
     result.is_leaf = true;
     result.aabb    = prebuilt_aabb;
@@ -162,8 +161,7 @@ typename BVHTree<_>::IndexType BVHTree<_>::build(
   InternalNode result(span_left, span_right);
 
   // const int &dim = depth % 3;
-  const int &dim  = ArgMax(prebuilt_aabb.getExtent());
-  IndexType count = span_right - span_left;
+  const int dim  = ArgMax(prebuilt_aabb.getExtent());
   IndexType split = INVALID_INDEX;
 
   if (hprofile == EHeuristicProfile::EMedianHeuristic) {
@@ -181,7 +179,18 @@ use_median_heuristic:
     //
     // You may find `std::nth_element` useful here.
 
-    UNIMPLEMENTED;
+    std::nth_element(
+        nodes.begin() + span_left,
+        nodes.begin() + split, 
+        nodes.begin() + span_right,
+        [dim](const NodeType &a, const NodeType &b) {
+            // 计算两个包围盒的质心
+            Vec3f centroid_a = (a.getAABB().low_bnd + a.getAABB().upper_bnd) * 0.5f;
+            Vec3f centroid_b = (b.getAABB().low_bnd + b.getAABB().upper_bnd) * 0.5f;
+            // 比较选定维度上的坐标
+            return centroid_a[dim] < centroid_b[dim];
+        }
+    );
 
     // clang-format on
   } else if (hprofile == EHeuristicProfile::ESurfaceAreaHeuristic) {
@@ -199,7 +208,98 @@ use_surface_area_heuristic:
     //
     // You can then set @see BVHTree::hprofile to ESurfaceAreaHeuristic to
     // enable this feature.
-    UNIMPLEMENTED;
+
+    AABB centroid_bounds;
+    for (IndexType i = span_left; i < span_right; ++i) {
+        Vec3f centroid = (nodes[i].getAABB().low_bnd + nodes[i].getAABB().upper_bnd) * 0.5f;
+        centroid_bounds.unionWith(centroid);
+    }
+    
+    int sah_dim = ArgMax(centroid_bounds.getExtent());
+    
+    // 如果质心包围盒体积为0（所有图元中心重合），无法使用SAH分割，回退到中位数
+    if (centroid_bounds.low_bnd[sah_dim] == centroid_bounds.upper_bnd[sah_dim]) {
+        goto use_median_heuristic;
+    }
+
+    // 2. 初始化桶 (Buckets)
+    constexpr int nBuckets = 12;
+    struct BucketInfo {
+        int count = 0;
+        AABB bounds;
+    };
+    BucketInfo buckets[nBuckets];
+    
+    Float min_b = centroid_bounds.low_bnd[sah_dim];
+    Float max_b = centroid_bounds.upper_bnd[sah_dim];
+    Float denominator = max_b - min_b;
+
+    // 3. 将图元分配到桶中
+    for (IndexType i = span_left; i < span_right; ++i) {
+        Vec3f centroid = (nodes[i].getAABB().low_bnd + nodes[i].getAABB().upper_bnd) * 0.5f;
+        int b = static_cast<int>(nBuckets * (centroid[sah_dim] - min_b) / denominator);
+        if (b == nBuckets) b = nBuckets - 1;
+        buckets[b].count++;
+        buckets[b].bounds.unionWith(nodes[i].getAABB());
+    }
+
+    // 4. 计算每个分割平面的代价
+    // Cost = 0.125 + (countA * SA_A + countB * SA_B) / SA_Total
+    Float cost[nBuckets - 1];
+    Float totalArea = prebuilt_aabb.getSurfaceArea();
+    
+    for (int i = 0; i < nBuckets - 1; ++i) {
+        AABB b0, b1;
+        int count0 = 0, count1 = 0;
+      
+        // 累加左边
+        for (int j = 0; j <= i; ++j) {
+            b0.unionWith(buckets[j].bounds);
+            count0 += buckets[j].count;
+        }
+        // 累加右边
+        for (int j = i + 1; j < nBuckets; ++j) {
+            b1.unionWith(buckets[j].bounds);
+            count1 += buckets[j].count;
+        }
+        
+        cost[i] = 0.125f + (count0 * b0.getSurfaceArea() + count1 * b1.getSurfaceArea()) / totalArea;
+    }
+  
+    // 5. 找到最小代价
+    Float minCost = cost[0];
+    int minCostSplitBucket = 0;  
+    for (int i = 1; i < nBuckets - 1; ++i) {
+        if (cost[i] < minCost) {
+            minCost = cost[i];
+            minCostSplitBucket = i;
+        }
+    }
+
+
+    Float leafCost = static_cast<Float> (count);
+    if (count > 4 && minCost < leafCost) {
+        // 执行 SAH 分割
+        auto pmid = std::partition(
+            nodes.begin() + span_left,
+            nodes.begin() + span_right,
+            [=](const NodeType &node) {
+                Vec3f centroid = (node.getAABB().low_bnd + node.getAABB().upper_bnd) * 0.5f;
+                int b = static_cast<int>(nBuckets * (centroid[sah_dim] - min_b) / denominator);
+                if (b == nBuckets) b = nBuckets - 1;
+                return b <= minCostSplitBucket;
+            }
+        );
+        split = pmid - nodes.begin();
+        
+        // 安全检查：如果 partition 失败导致一边为空，回退
+        if (split == span_left || split == span_right) {
+            goto use_median_heuristic;
+        }
+    } else {
+        // 代价过高，或者图元太少，回退到中位数分割
+        goto use_median_heuristic;
+    }
   }
 
   // Build the left and right subtree

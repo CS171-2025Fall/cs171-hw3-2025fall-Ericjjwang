@@ -5,7 +5,7 @@
  */
 #include <fstream>
 
-#include "nlohmann/json.hpp"
+#include <nlohmann/json.hpp>
 #include "rdr/interaction.h"
 #include "rdr/render.h"
 

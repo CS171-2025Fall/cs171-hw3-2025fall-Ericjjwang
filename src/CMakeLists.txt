@@ -11,6 +11,10 @@ add_library(renderer_lib STATIC "${source}")
 add_library(renderer::lib ALIAS renderer_lib)
 set_property(TARGET renderer_lib PROPERTY CXX_STANDARD 17)
 
+if(MSVC)
+    add_compile_options("/FS")
+endif()
+
 # Include libraries
 target_link_libraries(renderer_lib PUBLIC 
   stb OpenMP::OpenMP_CXX fmt nlohmann_json tinyobjloader 

@@ -1,4 +1,4 @@
-#include "rdr/integrator.h"
+﻿#include "rdr/integrator.h"
 
 #include <omp.h>
 
@@ -63,6 +63,24 @@ void IntersectionTestIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
         // assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
         // const Vec3f &L = Li(scene, ray, sampler);
         // camera->getFilm()->commitSample(pixel_sample, L);
+        
+        // 1. 获取当前像素内的采样点位置 
+        const Vec2f pixel_sample = sampler.getPixelSample();
+
+        // 2. 生成从相机出发的光线
+        DifferentialRay ray;
+        ray = camera->generateDifferentialRay(pixel_sample.x,pixel_sample.y);
+
+        // Accumulate radiance
+        // 确保采样点在当前像素范围内 (debug)
+        // assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
+        // assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
+
+        // 3. 计算该光线的辐射度
+        Vec3f L = Li(scene, ray, sampler);
+
+        // 4. 将结果提交到胶片
+        camera->getFilm()->commitSample(pixel_sample, L);
       }
     }
   }
@@ -104,7 +122,13 @@ Vec3f IntersectionTestIntegrator::Li(
       // @see SurfaceInteraction::spawnRay
       //
       // You should update ray = ... with the spawned ray
-      UNIMPLEMENTED;
+      Float pdf;
+      // 采样 BSDF 获取新的入射方向 wi (对于折射，这是透射方向)
+      // sample 函数通常会根据 wo 计算 wi，并返回 BSDF 值 (这里我们主要关心方向)
+      interaction.bsdf->sample(interaction, sampler, &pdf);
+
+      // 生成新的光线 (spawnRay 会自动处理 epsilon 偏移以防止自相交)
+      ray = interaction.spawnRay(interaction.wi);
       continue;
     }
 
@@ -148,7 +172,15 @@ Vec3f IntersectionTestIntegrator::directLighting(
   //
   //    You can use iteraction.p to get the intersection position.
   //
-  UNIMPLEMENTED;
+  test_ray.setTimeMax(dist_to_light - 1e-4f);
+
+  SurfaceInteraction shadow_interaction;
+  // 如果光线与场景中的任何物体相交，说明光源被遮挡
+  if (scene->intersect(test_ray, shadow_interaction)) {
+      // 被遮挡，返回黑色
+      return Vec3f(0, 0, 0);
+  }
+
 
   // Not occluded, compute the contribution using perfect diffuse diffuse model
   // Perform a quick and dirty check to determine whether the BSDF is ideal
@@ -170,7 +202,9 @@ Vec3f IntersectionTestIntegrator::directLighting(
 
     // You should assign the value to color
     // color = ...
-    UNIMPLEMENTED;
+    Vec3f albedo = bsdf->evaluate(interaction); 
+    
+    color = albedo * cos_theta;
   }
 
   return color;
@@ -184,19 +218,19 @@ Vec3f IntersectionTestIntegrator::directLighting(
 
 void PathIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
   // This is left as the next assignment
-  UNIMPLEMENTED;
+  return;
 }
 
 Vec3f PathIntegrator::Li(
     ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const {
   // This is left as the next assignment
-  UNIMPLEMENTED;
+  return Vec3f(0, 0, 0);
 }
 
 Vec3f PathIntegrator::directLighting(
     ref<Scene> scene, SurfaceInteraction &interaction, Sampler &sampler) const {
   // This is left as the next assignment
-  UNIMPLEMENTED;
+  return Vec3f(0,0,0);
 }
 
 /* ===================================================================== *
@@ -218,7 +252,7 @@ template <typename PathType>
 Vec3f IncrementalPathIntegrator::Li(  // NOLINT
     ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const {
   // This is left as the next assignment
-  UNIMPLEMENTED;
+  return Vec3f(0, 0, 0);
 }
 
 RDR_NAMESPACE_END

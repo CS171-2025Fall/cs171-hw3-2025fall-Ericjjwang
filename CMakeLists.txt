@@ -28,6 +28,7 @@ if (MSVC)
 	add_compile_options(/wd4244) # Disable warning C4244
 	add_compile_options(/wd4267)
 	add_compile_options(/wd4359)
+  add_compile_options(/FS /MP)
 endif()
 
 # Include cmake scripts
